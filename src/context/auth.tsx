@@ -16,8 +16,10 @@ type User = {
 
 type AuthContextData = {
   user: User | null;
+  isUserLoading: boolean;
   signInUrl: string;
   signOut: () => void;
+  userExistsOrIsLoading: () => boolean;
 };
 
 const AuthContext = createContext({} as AuthContextData);
@@ -36,12 +38,22 @@ type AuthResponse = {
   };
 };
 
+type UserState = {
+  user: User | null;
+  isUserLoading: boolean;
+};
+
 export function AuthProvider({ children }: AuthProvider) {
-  const [user, setUser] = useState<User | null>(null);
+  const [{ user, isUserLoading }, setUser] = useState<UserState>({
+    user: null,
+    isUserLoading: true,
+  });
 
   const signInUrl = `https://github.com/login/oauth/authorize?scope=user&client_id=4f7cffe1e134c7442809`;
 
   async function signIn(githubCode: string) {
+    setUser((oldUser) => ({ ...oldUser, isUserLoading: true }));
+
     const response = await api.post<AuthResponse>("authenticate", {
       code: githubCode,
     });
@@ -52,12 +64,16 @@ export function AuthProvider({ children }: AuthProvider) {
 
     api.defaults.headers.common.authorization = `Bearer ${token}`;
 
-    setUser(user);
+    setUser({ isUserLoading: false, user });
   }
 
   function signOut() {
-    setUser(null);
+    setUser({ isUserLoading: false, user: null });
     localStorage.removeItem("@dowhile:token");
+  }
+
+  function userExistsOrIsLoading() {
+    return !!user || isUserLoading;
   }
 
   useEffect(() => {
@@ -67,9 +83,11 @@ export function AuthProvider({ children }: AuthProvider) {
       api.defaults.headers.common.authorization = `Bearer ${token}`;
 
       api.get<User>("profile").then((response) => {
-        setUser(response.data);
+        setUser({ isUserLoading: false, user: response.data });
       });
+      return;
     }
+    setUser((oldUser) => ({ ...oldUser, isUserLoading: false }));
   }, []);
 
   useEffect(() => {
@@ -82,11 +100,14 @@ export function AuthProvider({ children }: AuthProvider) {
       window.history.pushState({}, "", urlWithoutCode);
 
       signIn(githubCode);
+      return;
     }
   }, []);
 
   return (
-    <AuthContext.Provider value={{ signInUrl, user, signOut }}>
+    <AuthContext.Provider
+      value={{ signInUrl, user, isUserLoading, signOut, userExistsOrIsLoading }}
+    >
       {children}
     </AuthContext.Provider>
   );
